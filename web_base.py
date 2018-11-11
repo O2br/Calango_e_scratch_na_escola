@@ -1,5 +1,4 @@
 import sys
-
 if (sys.platform == 'esp8266'):
     import utime as time
     import usocket as socket
@@ -9,18 +8,17 @@ else:
     import socket
     import re as ure
 
-    
 html = """<!DOCTYPE html>
-<html>
-<head>
-<title>Web Base</title>
-</head>
-    <body>
-	<h1>Web Base - GET</h1>
-		</p> 
-	</body>
-</html>
-"""
+          <html>
+          <head>
+          <title>Web Base</title>
+          </head>
+              <body>
+              <h1>Web Base - GET</h1>
+              </p> 
+              </body>
+           </html>
+           """
 ctypeDict = {}
 ctypeDict[".htm"] = "text/html"
 ctypeDict[".html"] = "text/html"
@@ -28,9 +26,10 @@ ctypeDict[".css"] = "text/css"
 ctypeDict[".xml"] = "application/xml"
 ctypeDict[".js"] = "application/javascript"
 ctypeDict[".json"] = "application/json"
+ctypeDict[".ico"] = "image/x-icon"
+ctypeDict[".png"] = "image/png"
 
 def parseURL(url):
-    #PARSE THE URL AND RETURN THE PATH AND GET PARAMETERS
     parameters = {} 
     path = ure.search("(.*?)(\?|$)", url)   
     while True:
@@ -47,61 +46,86 @@ def buildResponse(response):
     global html
     return '''HTTP/1.0 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-type: text/html\r\nContent-length: %d\r\n\r\n%s''' % (len(html), html)
 
-
-
 def main():
-    print("Oii")
+#    print("Oii")
     s = socket.socket()
-
-    # Binding to all interfaces - server will be accessible to other hosts!
     ai = socket.getaddrinfo("0.0.0.0", 8080)
     print("Bind address info:", ai)
     addr = ai[0][-1]
-
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(addr)
     s.listen(5)
     print("Listening, connect your browser to http://<this_host>:8080/")
-
+    
     while True:
         res = s.accept()
         client_sock = res[0]
         client_addr = res[1]
         print("Client address: {}  socket: {} ".format(client_addr, client_sock))
         client_stream = client_sock.makefile("rwb")        
+        #print(type(client_stream))
         print("HEAD:")
         obj = None
         objHost = None
+        
         while True:
             request = client_stream.readline()
+            #print("Resultado Requisição:  {}".format(request))
             if not obj:
                 obj = ure.search("GET (.*?) HTTP\/1\.1", request.decode())                        
             if not objHost:
                 objHost = ure.search("Host: (.*?)\r\n", request.decode())                        
-            else:
-                print(objHost)
-            if request == b"" or request == b"\r\n":
-                break
-            print(request)  
-           
+            if (request == b"\r\n" or request == b""):
+                break                 
+                
         if not obj:
-            print("INVALID REQUEST - GET")
+            html = '''HTTP/1.0 404 OK\r\nAccess-Control-Allow-Origin: *\r\n\r\n''' 
+            client_stream.write( html.encode())            
+            #print("INVALID REQUEST - GET")
         else:
             #print(" REGEX: {}  ".format(obj.group(1)))
             path, parameters = parseURL(obj.group(1))
             print("path: {}  parameters: {} ".format(path,parameters))                                                         
-            if (ure.search('^\/(.+\.(css|xml|js|html|json))$', path)):                    
+            if (ure.search('^\/(.+\.(css|xml|js|html|htm|json|ico|png))$', path)):                    
                 global ctypeDict
                 try:
-                    arq_html = open(".{}".format(path)).read()
-                    arq_html = ure.sub("\{\[host\]\}","http://{}".format(objHost.group(1)),arq_html)
-                    html = '''HTTP/1.0 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-type: %s\r\nContent-length: %d\r\n\r\n%s''' % ( ctypeDict[path[path.index('.'):]],len(arq_html), arq_html)                                                            
-                    client_stream.write(html.encode())                        
+                    f = open(".{}".format(path),"rb")
+                    arq_html = f.read()
+                    f.close()
+                    if (ure.search('^\/(.+\.(css|xml|js|html|htm|json))$', path)):
+                        
+                        arq_html = arq_html.decode().replace("{[host]}","http://{}".format(objHost.group(1)))
+                        #if (sys.platform == 'esp8266'):
+                        #    arq_html = arq_html.decode().replace("{[host]}","http://{}".format(objHost.group(1)))
+                        #else:
+                        #    arq_html = ure.sub("\{\[host\]\}","http://{}".format(objHost.group(1)),arq_html.decode())
+                            
+                            
+                        html = '''HTTP/1.0 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-type: %s\r\nContent-length: %d\r\n\r\n%s''' % ( ctypeDict[path[path.index('.'):]],len(arq_html), arq_html)
+                        client_stream.write(html.encode())     
+                    else:
+                        html = '''HTTP/1.0 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-type: %s\r\nContent-length: %d\r\n\r\n''' % ( ctypeDict[path[path.index('.'):]],len(arq_html))                                                                               
+                        client_stream.write(html.encode())
+                        client_stream.write(arq_html)
+                        client_stream.close()
+                        arq_html = None
+                        html = None
                 except Exception as e:
-                    client_stream.write( buildResponse("").encode())                                                                                
-            elif path.startswith("/home"):
+                    html = '''HTTP/1.0 404  Not Found\r\n\r\n<html><body><center><h3>Error 404: File not found</h3><p>ESP8266 HTTP Server</p></center></body></html>''' 
+                    print(e)
+                    client_stream.write(html.encode())                                                                                
+            elif (path == "/"):
+                print("Pagina inicial")
+                client_stream.write( buildResponse("").encode())                    
+            elif path.startswith("/api"):
+                print("/api")
+                html = '''HTTP/1.0 200 OK\r\nAccess-Control-Allow-Origin: *\r\n\r\n''' 
+                client_stream.write( html.encode())            
+                print("API")                
+            elif path.startswith("/ana0"):
                 print("rota /")
-                client_stream.write( buildResponse("").encode())
+                html = '''HTTP/1.0 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-type: text/plain\r\nContent-length: %d\r\n\r\n%s''' % (len("12213.33"), "12213.33")
+                client_stream.write( html.encode())                
             elif path.startswith("/halt"):
                 print("rota /halt")
                 client_stream.write(buildResponse("Shutting down server\n").encode())
@@ -110,11 +134,15 @@ def main():
                 s.close()
                 break
             else:
-                print("Rota desconhecida  %s -> %s" % (path, parameters))
-                client_stream.write(buildResponse("UNREGISTERED ACTION\r\nPATH: %s\r\nPARAMETERS: %s" % (path, parameters)).encode())                                             
-        client_stream.close()            
-        client_sock.close()
+                
+                html = '''HTTP/1.0 404  Not Found\r\n\r\n<html><body><center><h3>Error 404: File not found</h3><p>ESP8266 HTTP Server</p></center></body></html>''' 
+                client_stream.write( html.encode())
+                print("INVALID REQUEST - GET")
         
-        print()
+        client_stream.close()            
+        client_sock.close()        
+        print("-----------------------------------------------------")
+    print("Finaliza a conexão socket")
+    s.close()
+        
 main()
-
