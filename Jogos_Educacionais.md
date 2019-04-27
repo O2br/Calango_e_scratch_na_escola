@@ -1,0 +1,2 @@
+- https://clic.xtec.cat/legacy/en/jclic/howto.htm
+- https://github.com/projectestac/jclic
